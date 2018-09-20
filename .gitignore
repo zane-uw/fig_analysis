@@ -34,3 +34,14 @@ vignettes/*.pdf
 
 # Shiny token, see https://shiny.rstudio.com/articles/shinyapps.html
 rsconnect/
+.Rproj.user
+
+# Annoying OSX internal files
+Icon
+
+# Project files
+config.R
+.Rdata
+.csv
+.pdf
+.html
