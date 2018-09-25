@@ -7,7 +7,6 @@ gc()
 library(tidyverse)
 library(dbplyr)
 library(odbc)
-library(ggalluvial)
 
 # helper function - create quoted vector, i.e. c(), from unquoted text
 # not intended to smoothly handle punctuation but can be coerced a little, e.g. Cs(a, b, "?")
@@ -40,7 +39,7 @@ parents <- tbl(con, in_schema("sec", "time_schedule")) %>%
 # needs to also be keyed off the year and quarter since SLN's repeat frequently
 # also, the GEN ST sections can share block registration children
 genst <- tbl(con, in_schema("sec", "transcript_courses_taken")) %>%
-  filter(tran_yr == 2010, tran_qtr == 4, dept_abbrev == "GEN ST", course_number == 199) %>%
+  filter(tran_yr >= 2010, tran_qtr == 4, dept_abbrev == "GEN ST", course_number == 199) %>%
   select(system_key, tran_yr, tran_qtr, dept_abbrev, course_number, section_id, course_branch) %>%
   inner_join(parents,
              by = c("tran_yr" = "ts_year",
@@ -56,9 +55,12 @@ genst <- tbl(con, in_schema("sec", "transcript_courses_taken")) %>%
 genst <- genst %>%
   mutate_if(is.character, trimws) %>%
   mutate(fig.yrq = tran_yr*10 + tran_qtr,
-  fig.key = paste(fig.yrq, section_id, sln, sep = "_"))
+  fig.key = paste(fig.yrq, section_id, sln, sep = "_")) %>%
+  select(system_key, fig.yrq, fig.key, fig.yr = tran_yr, fig.qtr = tran_qtr) %>%
+  distinct()
 
-stus <- genst %>% select(system_key, fig.yrq, fig.yr = tran_yr, fig.qtr = tran_qtr, fig.key) %>% distinct()
+stus <- genst %>% select(system_key, fig.yrq, fig.yr, fig.qtr, fig.key) %>% arrange(fig.yrq) %>% distinct(system_key, .keep_all = T)
+
 
 # fetch transcripts for fig students
 transcripts <- tbl(con, in_schema("sec", "transcript_courses_taken")) %>%
@@ -72,12 +74,13 @@ transcripts <- tbl(con, in_schema("sec", "transcript_courses_taken")) %>%
   mutate_if(is.character, trimws) %>%
   mutate(tran.yrq = tran_yr*10 + tran_qtr,
          ckey = paste(course_branch, dept_abbrev, course_number, sep = "_"),
-         cskey = paste(ckey, section_id, sep = "_"))
+         cskey = paste(ckey, section_id, sep = "_")) %>%
+  filter(tran.yrq >= 20104, tran.yrq >= fig.yrq)
 
 # oddity check
-any(transcripts$tran.yrq < transcripts$fig.yrq)
-x <- transcripts %>% filter(tran.yrq < fig.yrq)
-transcripts <- transcripts %>% filter(tran.yrq >= fig.yrq)
+  # any(transcripts$tran.yrq < transcripts$fig.yrq)
+  # x <- transcripts %>% filter(tran.yrq < fig.yrq)
+  # transcripts <- transcripts %>% filter(tran.yrq >= fig.yrq)
 
 # # get system_keys for students in the above child courses (the fig courses)
 # child.trans <- tbl(con, in_schema("sec", "transcript_courses_taken")) %>%
@@ -95,21 +98,44 @@ transcripts <- transcripts %>% filter(tran.yrq >= fig.yrq)
 #   mutate(fig.yrq = tran_yr*10 + tran_qtr)                     # just curious - .001 sec for n = 10e4
 #   # mutate(fig.yrq = as.numeric(paste0(tran_yr, tran_qtr)))   # .15 sec for n = 10e4
 
-# collect transcripts and other relevant data for those students
+# child transcripts (e.g. fig course transcripts only and to flag fig core classes)
+chld <- tbl(con, in_schema("sec", "time_sched_fig_child_sln")) %>% collect()
+chld <- chld %>%
+  filter(ts_year >= 2010, ts_quarter == 4, dept_abbrev == "GEN ST")
+
+chld.sln <- tbl(con, in_schema("sec", "time_schedule")) %>%
+  select(ts_year, ts_quarter, course_no, dept_abbrev, section_id, sln) %>%
+  inner_join(chld, copy = T) %>%
+  collect() %>%
+  mutate_if(is.character, trimws) %>%
+  mutate(fig.yrq = ts_year*10 + ts_quarter,
+         fig.key = paste(fig.yrq, section_id, sln, sep = "_")) %>%
+  select(fig.key, ts_year, ts_quarter, fig.yrq, fig_child_sln, chld.index = index1)
+
+chld.data <- tbl(con, in_schema("sec", "time_schedule")) %>%
+  select(ts_year, ts_quarter, course_no, dept_abbrev, section_id, sln) %>%
+  inner_join(chld.sln, by = c("sln" = "fig_child_sln",
+                              "ts_year" = "ts_year",
+                              "ts_quarter" = "ts_quarter"),
+             copy = T) %>%
+  collect()
+
+# can't do _this_ part unfortunately (w/o further doing a filtering join by system_keys)
+# fig.child <- tbl(con, in_schema("sec", "transcript_courses_taken")) %>%
+#   filter(tran_yr >= 2010) %>%
+#   select(system_key, tran_yr, tran_qtr, dept_abbrev, course_number, section_id, course_branch, grade_system, grade) %>%
+#   inner_join(chld.sln,
+#              by = c("tran_yr" = "ts_year",
+#                     "tran_qtr" = "ts_quarter",
+#                     "course_number" = "course_no",
+#                     "dept_abbrev" = "dept_abbrev",
+#                     "section_id" = "section_id"),
+#              copy = T) %>%
+#   collect() %>%
+#   mutate_if(is.character, trimws) %>%
+#   mutate(yrq = tran_yr*10 + tran_qtr)
 
 
-# test roll up
-x <- transcripts %>% group_by(fig.key, tran.yrq, cskey) %>% summarize(n = n())
+# save --------------------------------------------------------------------
 
-ex <- x[x$fig.key == "20104_E9_14119" & x$n > 1,]
-ggplot(data = ex, aes(y = n, x = tran.yrq, alluvium = cskey)) +
-  geom_alluvium(aes(fill = cskey))
-
-ggplot(as.data.frame(UCBAdmissions),
-       aes(y = Freq, axis1 = Gender, axis2 = Dept)) +
-  geom_alluvium(aes(fill = Admit), width = 1/12) +
-  geom_stratum(width = 1/12, fill = "black", color = "grey") +
-  geom_label(stat = "stratum", label.strata = TRUE) +
-  scale_x_discrete(limits = c("Gender", "Dept"), expand = c(.05, .05)) +
-  scale_fill_brewer(type = "qual", palette = "Set1") +
-  ggtitle("UC Berkeley admissions and rejections, by sex and department")
+save(transcripts, genst, chld.data, file = "data/fig-stu-transcripts.Rdata")
