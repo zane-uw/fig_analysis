@@ -118,9 +118,21 @@ chld.data <- tbl(con, in_schema("sec", "time_schedule")) %>%
                               "ts_year" = "ts_year",
                               "ts_quarter" = "ts_quarter"),
              copy = T) %>%
-  collect()
+  collect() %>%
+  mutate_if(is.character, trimws)
 
-# can't do _this_ part unfortunately (w/o further doing a filtering join by system_keys)
+#####
+# can't do _this_ part unfortunately; even with further filtering by system_keys it's still not accurate. Some section ID's just appear to be
+# missing or wrong, I can't tell. I first noticed this with ART 120 in 2010 - there are far more people in that class than in the FIG and
+# the transcripts don't appear to have all the sections that they should based on searching it via the SWS. So the child sln's can't be
+# used to reliably get a set of FIG students - only the course info itself. I could still use this to tag the 'core' FIG classes for each FIG.
+
+# chld <- chld %>% mutate(fig.key = paste(paste0(ts_year, ts_quarter), trimws(section_id), sep = "_")) %>%
+#   select(ts_year, ts_quarter, fig.key, sln = fig_child_sln)
+# chld.sln <- tbl(con, in_schema("sec", "time_schedule")) %>%
+#   select(ts_year, ts_quarter, course_no, dept_abbrev, section_id, sln) %>%
+#   inner_join(chld, copy = T) %>%
+#   collect()
 # fig.child <- tbl(con, in_schema("sec", "transcript_courses_taken")) %>%
 #   filter(tran_yr >= 2010) %>%
 #   select(system_key, tran_yr, tran_qtr, dept_abbrev, course_number, section_id, course_branch, grade_system, grade) %>%
@@ -133,8 +145,9 @@ chld.data <- tbl(con, in_schema("sec", "time_schedule")) %>%
 #              copy = T) %>%
 #   collect() %>%
 #   mutate_if(is.character, trimws) %>%
-#   mutate(yrq = tran_yr*10 + tran_qtr)
-
+#   mutate(yrq = tran_yr*10 + tran_qtr) %>%
+#   filter(system_key %in% transcripts$system_key)
+#####
 
 # save --------------------------------------------------------------------
 
