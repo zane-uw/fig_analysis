@@ -88,3 +88,18 @@ table(co.courses$fig.prop.cut)
 co.courses %>% group_by(fig.yrq) %>% summarize(n = sum(fig.size),
                                             n_j = sum(by.fig.nstu.any.joint.classes),
                                             prop = n_j / n)
+
+
+
+# other questions ---------------------------------------------------------
+
+# what are the most common/freq FIG courses?
+freq.courses <- transcripts %>% filter(term == 1, ckey != "0_GEN ST_19")
+
+freq.courses <- freq.courses %>%
+  group_by(fig.yrq, ckey, cskey) %>%
+  distinct(fig.yrq, ckey, cskey) %>%
+  group_by(fig.yrq, ckey, add = F) %>%      # annual
+  summarize(nc = n())
+
+freq.courses %>% group_by(ckey, add = F) %>% summarize(n = sum(nc)) %>% arrange(desc(n))
