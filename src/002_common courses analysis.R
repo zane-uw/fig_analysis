@@ -64,7 +64,6 @@ transcripts <- transcripts %>% left_join(nfig, by = c("fig.key", "fig.yrq"))
 # filter, remove repeat courses, give students enough time to take more courses together
 dat <- transcripts %>% filter(term == 2 | term == 3) %>% distinct(fig.key, system_key, dept_abbrev, course_number, .keep_all = T)
 
-
 # taking any sections together:
 fig.sect <- dat %>%
   group_by(fig.key, cskey) %>%
@@ -142,10 +141,11 @@ stu.n <- stu.sub %>%
   summarize(stu.n.sect = n_distinct(cskey),
             stu.n.course = n_distinct(ckey))
 
-stu.co <- stu.sub %>%
-  group_by(tran.yrq, fig.key, cskey) %>%
-  mutate(stu.co.sect = n_distinct(system_key)) %>%
-  group_by(system_key, tran.yrq, fig.key, cskey) %>%
+
+# stu.co <- stu.sub %>%
+#   group_by(tran.yrq, fig.key, cskey) %>%
+#   mutate(stu.co.sect = n_distinct(system_key)) %>%
+#   group_by(system_key, tran.yrq, fig.key, cskey) %>%
 
 
 
@@ -155,7 +155,7 @@ stu.co <- stu.sub %>%
 # want to know what the average number of co-classes is -------------------
 
 # take sections from the fig.sect data
-co <-
+co <- fig.sect %>%
 
 
 
