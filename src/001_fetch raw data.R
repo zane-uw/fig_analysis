@@ -149,6 +149,36 @@ chld.data <- tbl(con, in_schema("sec", "time_schedule")) %>%
 #   filter(system_key %in% transcripts$system_key)
 #####
 
+
+# Non-fig FTFY students ---------------------------------------------------
+
+acon <- dbConnect(odbc::odbc(), dns, Database = dabs[1], UID = uid,
+                  PWD = rstudioapi::askForPassword("pwd-"))
+
+ftfy <- tbl(acon, in_schema("sec", "IV_StudentFactSheet")) %>%
+  filter(AcademicQtrKeyId >= 20104, AcademicQtrKeyId <= 20174, AcademicQtr == 4,
+         StudentLevelTaxonomyKey == '00010', AcademicCareerEntryType == "FTFY", AcademicCareerLevelEnrolledTerm == 1) %>%
+  select(system_key = SDBSrcSystemKey, yrq1 = AcademicQtrKeyId, qtr1 = AcademicQtr) %>%
+  collect() %>%
+  mutate(yr1 = yrq1 %/% 10)
+
+ftfy <- ftfy[!(ftfy$system_key %in% stus$system_key),]
+
+not.fig <- tbl(con, in_schema("sec", "transcript_courses_taken")) %>%
+  filter(tran_yr >= 2010, repeat_course == 0) %>%
+  select(system_key, tran_yr, tran_qtr, dept_abbrev, course_number, section_id, course_branch,
+         index1, grade_system, grade) %>%
+  inner_join(ftfy, by = "system_key", copy = T) %>%
+  collect() %>%
+  mutate_if(is.character, trimws) %>%
+  mutate(tran.yrq = tran_yr*10 + tran_qtr,
+         ckey = paste(course_branch, dept_abbrev, course_number, sep = "_"),
+         cskey = paste(ckey, section_id, sep = "_"))
+
+not.fig <- not.fig %>% group_by(system_key) %>%
+  filter(tran.yrq >= yrq1, tran.yrq < yrq1+19, tran_qtr != 3) %>%  # keep first 2 years, no summer, no repeats
+  distinct(system_key, cskey, .keep_all = T)
+
 # save --------------------------------------------------------------------
 
-save(transcripts, genst, chld.data, file = "data/fig-stu-transcripts.Rdata")
+save(transcripts, not.fig, genst, chld.data, file = "data/fig-stu-transcripts.Rdata")
