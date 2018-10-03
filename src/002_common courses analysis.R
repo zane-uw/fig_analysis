@@ -161,6 +161,49 @@ co <- fig.sect %>%
 
 
 
+# non-FIG students --------------------------------------------------------
+
+# terms:
+not.fig <- not.fig %>% group_by(yrq1) %>% arrange(yrq1, tran.yrq) %>% ungroup()
+not.fig$term <- unlist(tapply(not.fig$tran.yrq,
+                                  factor(not.fig$yrq1),
+                                  function(x){
+                                    r <- rle(x)
+                                    e <- length(unique(x))
+                                    return(rep(1:e, times = r$lengths))
+                                  }), use.names = F)
+
+
+# first year
+nf.cohort <- not.fig %>%
+  filter(term == 1) %>%
+  mutate(cohort = paste(yrq1, cskey, sep = "_")) %>%
+  select(system_key, yrq1, cohort) %>%
+  distinct()
+
+nf.yr1 <- not.fig %>%
+  filter(term == 2 | term == 3) %>%
+  left_join(nf.cohort)
+
+# how many didn't come back in those terms?
+length(unique(nf.cohort$system_key[(nf.cohort$system_key %in% nf.yr1$system_key) == F]))    # 618
+
+# co-classes w/ someone from same 'cohort' (section):
+nf.co.sect <- nf.yr1 %>%
+  group_by(cohort, cskey, add = F) %>%
+  summarize(by.sect.nstu.joint.classes = n_distinct(system_key))
+
+co.sect <- fig.sect %>%
+  group_by(fig.key, add = F) %>%
+  filter(n.sect >= 2) %>%
+  summarize(by.fig.nstu.any.joint.classes = n_distinct(system_key),
+            fig.yrq = max(fig.yrq),
+            fig.size = max(nstu)) %>%
+  mutate(joint.prop = by.fig.nstu.any.joint.classes / fig.size) %>%
+  ungroup()
+
+
+
 # other questions ---------------------------------------------------------
 
 # what are the most common/freq FIG courses?
