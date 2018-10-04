@@ -164,25 +164,16 @@ ftfy <- tbl(acon, in_schema("sec", "IV_StudentFactSheet")) %>%
 
 ftfy <- ftfy[!(ftfy$system_key %in% stus$system_key),]
 
-not.fig <- tbl(con, in_schema("sec", "registration_courses")) %>%
-  filter(regis_yr >= 2010, regis_qtr == 4) %>%
-  select(system_key, regis_yr, regis_qtr, index1, course_branch, crs_curric_abbr, crs_number, crs_section_id, 'repeat', dup_enroll) %>%
+not.fig <- tbl(con, in_schema("sec", "transcript_courses_taken")) %>%
+  filter(tran_yr >= 2010, repeat_course == 0) %>%
+  select(system_key, tran_yr, tran_qtr, dept_abbrev, course_number, section_id, course_branch,
+         index1, grade_system, grade) %>%
   inner_join(ftfy, by = "system_key", copy = T) %>%
   collect() %>%
   mutate_if(is.character, trimws) %>%
-  mutate(tran.yrq = regis_yr*10 + regis_qtr,
-         ckey = paste(course_branch, crs_curric_abbr, crs_number, sep = "_"),
-         cskey = paste(ckey, crs_section_id, sep = "_"))
-
-# sift to get only the sub-sections, not top-level courses
-not.fig <- not.fig %>% filter(not.fig$`repeat` == "0" | not.fig$`repeat` == "", dup_enroll == "")
-not.fig <- not.fig %>%
-  mutate(l = str_length(crs_section_id)) %>%
-  group_by(system_key, tran.yrq, ckey) %>%
-  filter(l == max(l))                              # discard the large lecture components of classes with lecture/quiz sections
-not.fig <- not.fig %>%
-  group_by(system_key, tran.yrq, ckey) %>%
-  filter(index1 == max(index1))
+  mutate(tran.yrq = tran_yr*10 + tran_qtr,
+         ckey = paste(course_branch, dept_abbrev, course_number, sep = "_"),
+         cskey = paste(ckey, section_id, sep = "_"))
 
 not.fig <- not.fig %>% group_by(system_key) %>%
   filter(tran.yrq >= yrq1, tran.yrq < yrq1+19, tran_qtr != 3) %>%  # keep first 2 years, no summer, no repeats
@@ -191,10 +182,3 @@ not.fig <- not.fig %>% group_by(system_key) %>%
 # save --------------------------------------------------------------------
 
 save(transcripts, not.fig, genst, chld.data, file = "data/fig-stu-transcripts.Rdata")
-
-
-
-
-
-
-
