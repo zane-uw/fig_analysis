@@ -62,43 +62,35 @@ genst <- genst %>%
 stus <- genst %>% select(system_key, fig.yrq, fig.yr, fig.qtr, fig.key) %>% arrange(fig.yrq) %>% distinct(system_key, .keep_all = T)
 
 
-# fetch transcripts for fig students
-transcripts <- tbl(con, in_schema("sec", "transcript_courses_taken")) %>%
-  filter(tran_yr >= 2010, repeat_course == 0) %>%
-  select(system_key, tran_yr, tran_qtr, dept_abbrev, course_number, section_id, course_branch,
-         index1, grade_system, grade) %>%
+# fetch x_transcripts_x REGISTRATIONS for fig students
+transcripts <- tbl(con, in_schema("sec", "registration_courses")) %>%
+  filter(regis_yr >= 2013,
+         `repeat` %in% c("0", ""),
+         request_status %in% c('A', 'C', 'R'),
+         dup_enroll == "") %>%
+  select(system_key, regis_yr, regis_qtr, index1, sln, course_branch, grade_dt,            # grade_dt may be useful to filter
+         dept_abbrev = crs_curric_abbr,
+         course_number = crs_number,
+         section_id = crs_section_id) %>%
   inner_join(stus,
              by = "system_key",
              copy = T) %>%
   collect() %>%
   mutate_if(is.character, trimws) %>%
-  mutate(tran.yrq = tran_yr*10 + tran_qtr,
-         ckey = paste(course_branch, dept_abbrev, course_number, sep = "_"),
+  mutate(tran.yrq = regis_yr*10 + regis_qtr,
+         ckey = paste(tran.yrq, sln, course_branch, dept_abbrev, course_number, sep = "_"),
          cskey = paste(ckey, section_id, sep = "_")) %>%
-  filter(tran.yrq >= 20104, tran.yrq >= fig.yrq)
+  filter(tran.yrq >= 20134, tran.yrq >= fig.yrq)
 
-# oddity check
-  # any(transcripts$tran.yrq < transcripts$fig.yrq)
-  # x <- transcripts %>% filter(tran.yrq < fig.yrq)
-  # transcripts <- transcripts %>% filter(tran.yrq >= fig.yrq)
+# Reduce to the 2 digit section # where possible
+transcripts <- transcripts %>%
+  mutate(l = str_length(section_id)) %>%
+  group_by(system_key, tran.yrq, dept_abbrev, course_number) %>%
+  filter(l == max(l)) %>%
+  select(-l) %>%
+  ungroup()
 
-# # get system_keys for students in the above child courses (the fig courses)
-# child.trans <- tbl(con, in_schema("sec", "transcript_courses_taken")) %>%
-#   filter(tran_yr >= 2010, tran_qtr == 4) %>%
-#   select(system_key, tran_yr, tran_qtr, dept_abbrev, course_number, section_id, course_branch) %>%
-#   inner_join(children,
-#              by = c("tran_yr" = "ts_year",
-#                     "tran_qtr" = "ts_quarter",
-#                     "dept_abbrev" = "dept_abbrev",
-#                     "course_number" = "course_no",
-#                     "section_id" = "section_id",
-#                     "course_branch" = "course_branch"),
-#              copy = T) %>%
-#   collect() %>%
-#   mutate(fig.yrq = tran_yr*10 + tran_qtr)                     # just curious - .001 sec for n = 10e4
-#   # mutate(fig.yrq = as.numeric(paste0(tran_yr, tran_qtr)))   # .15 sec for n = 10e4
-
-# child transcripts (e.g. fig course transcripts only and to flag fig core classes)
+# child transcripts
 chld <- tbl(con, in_schema("sec", "time_sched_fig_child_sln")) %>% collect()
 chld <- chld %>%
   filter(ts_year >= 2010, ts_quarter == 4, dept_abbrev == "GEN ST")
@@ -156,7 +148,7 @@ acon <- dbConnect(odbc::odbc(), dns, Database = dabs[1], UID = uid,
                   PWD = rstudioapi::askForPassword("pwd-"))
 
 ftfy <- tbl(acon, in_schema("sec", "IV_StudentFactSheet")) %>%
-  filter(AcademicQtrKeyId >= 20104, AcademicQtrKeyId <= 20174, AcademicQtr == 4,
+  filter(AcademicQtrKeyId >= 20134, AcademicQtrKeyId <= 20174, AcademicQtr == 4,
          StudentLevelTaxonomyKey == '00010', AcademicCareerEntryType == "FTFY", AcademicCareerLevelEnrolledTerm == 1) %>%
   select(system_key = SDBSrcSystemKey, yrq1 = AcademicQtrKeyId, qtr1 = AcademicQtr) %>%
   collect() %>%
@@ -164,21 +156,68 @@ ftfy <- tbl(acon, in_schema("sec", "IV_StudentFactSheet")) %>%
 
 ftfy <- ftfy[!(ftfy$system_key %in% stus$system_key),]
 
-not.fig <- tbl(con, in_schema("sec", "transcript_courses_taken")) %>%
-  filter(tran_yr >= 2010, repeat_course == 0) %>%
-  select(system_key, tran_yr, tran_qtr, dept_abbrev, course_number, section_id, course_branch,
-         index1, grade_system, grade) %>%
+
+# problems:
+# 1) transcript_courses_taken doesn't show sections w/ fine detail, only top level
+# 2) registration is _every_ registration, so need to really slim it down
+not.fig <- tbl(con, in_schema("sec", "registration_courses")) %>%
+  filter(regis_yr >= 2013,
+         `repeat` %in% c("0", ""),
+         request_status %in% c("A", "C", "R"),
+         dup_enroll == "") %>%
+  select(system_key, regis_yr, regis_qtr, index1, sln, course_branch, grade_dt,
+         dept_abbrev = crs_curric_abbr,
+         course_number = crs_number,
+         section_id = crs_section_id) %>%
   inner_join(ftfy, by = "system_key", copy = T) %>%
   collect() %>%
   mutate_if(is.character, trimws) %>%
-  mutate(tran.yrq = tran_yr*10 + tran_qtr,
-         ckey = paste(course_branch, dept_abbrev, course_number, sep = "_"),
+  mutate(tran.yrq = regis_yr*10 + regis_qtr,
+         ckey = paste(tran.yrq, sln, course_branch, dept_abbrev, course_number, sep = "_"),
          cskey = paste(ckey, section_id, sep = "_"))
 
+# sift to get only the sub-sections, not top-level courses
+not.fig <- not.fig %>%
+  mutate(l = str_length(section_id)) %>%
+  group_by(system_key, tran.yrq, dept_abbrev, course_number) %>%
+  filter(l == max(l)) %>%
+  select(-l) %>%
+  ungroup()                             # discard the large lecture components of classes with lecture/quiz sections
+
+# not.fig <- not.fig %>%
+#   group_by(system_key, tran.yrq, ckey) %>%
+#   filter(index1 == max(index1))
+
+# keep first 2 years, no summers
 not.fig <- not.fig %>% group_by(system_key) %>%
-  filter(tran.yrq >= yrq1, tran.yrq < yrq1+19, tran_qtr != 3) %>%  # keep first 2 years, no summer, no repeats
+  filter(tran.yrq >= yrq1, tran.yrq < yrq1+19, regis_qtr != 3) %>%
   distinct(system_key, cskey, .keep_all = T)
+
+# create a 'fig key' for the non-fig students using the course sections from their first yrq
+x <- not.fig %>% filter(tran.yrq == yrq1) %>%
+  mutate(not.figkey = paste(yrq1, dept_abbrev, course_number, section_id, sep = "_")) %>%
+  select(system_key, not.figkey) %>%
+  distinct()
+
+# going to end up with FAR more rows than the fig students b/c every course is a key here, not just the gen-studies
+# but we can reduce the n a little bit by getting rid of first quarter classes with only 1 entry
+
+# check fig sizes
+t <- genst %>% group_by(fig.key) %>% summarize(n = n())
+table(t$n)
+# keep sizes from 9:25
+nx <- x %>% group_by(not.figkey) %>% mutate(n = n()) %>% ungroup() %>% filter(n %in% 9:25)
+x <- x[x$system_key %in% nx$system_key,]
+
+not.fig <- x %>% inner_join(not.fig, by = "system_key")
 
 # save --------------------------------------------------------------------
 
 save(transcripts, not.fig, genst, chld.data, file = "data/fig-stu-transcripts.Rdata")
+
+
+
+
+
+
+
