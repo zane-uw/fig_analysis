@@ -2,7 +2,7 @@ rm(list = ls())
 gc()
 
 library(tidyverse)
-
+library(ggplot2)
 
 # setup -------------------------------------------------------------------
 setwd(rstudioapi::getActiveProject())
@@ -43,6 +43,18 @@ transcripts %>%
             nsect = n_distinct(cskey)) %>%
   ungroup()
 
+(cohort.size <- transcripts %>%
+    filter(term == 1) %>%
+    group_by(fig.key) %>%
+    mutate(s = n_distinct(system_key)) %>%
+    filter(s >= 10, s <= 30) %>%
+    ungroup() %>%
+    group_by(fig.yrq) %>%
+    summarize(n = n_distinct(system_key),
+              m = mean(s)))
+
+
+
 
 # Analyses ----------------------------------------------------------------
 
@@ -62,7 +74,7 @@ dat <- transcripts %>%
   ungroup() %>%
   filter(fig.size >= 10, fig.size <= 30, term == 2 | term == 3, fig.yrq >= 20134, tran.yrq >= 20134) %>%
   distinct(fig.key, system_key, dept_abbrev, course_number, section_id, .keep_all = T)
-# remove large sections (> 30 students)
+# remove large sections (> 30 students)  -- note this isn't the total size, just the fig students
 dat <- dat %>% group_by(term, cskey) %>% mutate(sect.size = n_distinct(system_key)) %>% filter(sect.size <= 30) %>% ungroup()
 
 # taking sections together:
@@ -121,14 +133,37 @@ sum(co.sect$by.fig.nstu.any.joint.classes) / length(unique(dat$system_key))
 length(unique(dat$fig.key[!(dat$fig.key %in% co.sect$fig.key)]))    # that few? huh
 
 
-# — 2) what courses (not sections) are FIG students taking togethe --------
+# — 2) what courses (+ sections) are FIG students taking together --------
 
 # w/ term
-pop.courses <- dat %>%
-  group_by(fig.key, term) %>%
-  distinct(system_key, dept_abbrev, course_number, .keep_all = T) %>% ungroup()
+pop.sect <- fig.sect %>%
+  filter(n.fig.sect > 1) %>%
+  group_by(fig.key, dept_abbrev, course_number, cskey) %>%
+  summarize(same.section = n_distinct(system_key)) %>%
+  ungroup() %>%
+  select(fig.key, dept_abbrev, course_number, same.section)
 
-(p <- pop.courses %>% group_by(dept_abbrev, course_number) %>% summarize(pop = n_distinct(system_key)) %>% arrange(desc(pop)))
+# then -> most popular courses for same section:
+pop.course <- fig.sect %>%
+  group_by(fig.key, dept_abbrev, course_number) %>%
+  summarize(same.course = n_distinct(system_key)) %>%
+  ungroup()
+
+
+pop.tot <- pop.sect %>% inner_join(pop.course) %>%
+  group_by(dept_abbrev, course_number) %>%
+  summarize(section = sum(same.section),
+            course = sum(same.course)) %>%
+  ungroup() %>%
+  mutate(r = section / course) %>%
+  arrange(desc(section))
+
+write_csv(pop.tot, "../most popular common sections and courses.csv", col_names = T)
+
+
+#  distinct(system_key, dept_abbrev, course_number, .keep_all = T) %>% ungroup()
+
+# (p <- pop.courses %>% group_by(dept_abbrev, course_number) %>% summarize(pop = n_distinct(system_key)) %>% arrange(desc(pop)))
 
 
 # 3) Average # of sections a FIG student takes with someone else from the FIG
@@ -226,3 +261,71 @@ table(y$n)
 sum(x$n > 1) / nrow(x)
 sum(y$n > 1) / nrow(y)
 
+
+
+
+
+# graphic - popular courses/common sections -------------------------------
+
+# most pop by term
+x <- transcripts %>%
+  group_by(fig.key) %>%
+  mutate(fig.size = n_distinct(system_key)) %>%
+  ungroup() %>%
+  filter(fig.size >= 10, fig.size <= 30, tran.yrq <= fig.yrq + 18, fig.yrq %in% c(20134, 20144, 20154, 20164), tran.yrq >= 20134, term %in% c(2, 3, 5, 6, 7)) %>%
+  distinct(fig.key, system_key, dept_abbrev, course_number, section_id, .keep_all = T)
+# remove large sections (> 30 students)  -- note this isn't the total size, just the fig students
+x$termlab <- factor(x$term, levels = c(2, 3, 5, 6, 7), labels = c("Winter-1", "Spring-1", "Fall-2", "Winter-2", "Spring-2"))
+
+(term.size <- x %>%
+  group_by(termlab) %>%
+  summarize(n.stu = n_distinct(system_key)))
+
+x2 <- x %>%
+  group_by(fig.yrq, termlab, dept_abbrev, course_number) %>%
+  summarize(n.course = n_distinct(system_key))
+
+y <- x2 %>%
+  group_by(termlab, dept_abbrev, course_number) %>%
+  summarize(n.course = sum(n.course)) %>%
+  ungroup() %>%
+  left_join(term.size) %>%
+  mutate(r = n.course / n.stu)
+
+topy <- y %>% arrange(termlab, desc(r)) %>% group_by(termlab, add = F) %>% filter(row_number(desc(r)) <= 10) %>% mutate(course = paste(dept_abbrev, course_number, sep = " "))
+
+# tile:
+theme_set(theme_bw(base_size = 14))
+g <- ggplot(data = topy, aes(x = termlab, y = course)) +
+  geom_tile(aes(fill = 100*topy$r), alpha = .8) +
+  scale_y_discrete(limits = rev(unique(sort(topy$course)))) +
+  ylab("Course") +
+  xlab("Quarter (first two years)") +
+  labs(fill = "% in quarter")
+g
+
+
+
+# now - most popular courses to take w/ someone from your FIG in the same section
+# most pop by term
+
+y2 <- x %>%
+  group_by(fig.yrq, termlab, dept_abbrev, course_number, section_id) %>%
+  summarize(n.sect = n_distinct(system_key)) %>%
+  filter(n.sect <= 30, n.sect > 1) %>%
+  # roll up one more level:
+  group_by(termlab, dept_abbrev, course_number, add = F) %>%
+  summarize(n.sect = sum(n.sect)) %>%
+  left_join(term.size) %>%
+  mutate(r = n.sect / n.stu)
+
+topy2 <- y2 %>% arrange(termlab, desc(r)) %>% group_by(termlab, add = F) %>% filter(row_number(desc(r)) <= 10) %>% mutate(course = paste(dept_abbrev, course_number, sep = " "))
+
+# tile:
+g2 <- ggplot(data = topy2, aes(x = termlab, y = course)) +
+  geom_tile(aes(fill = 100*topy2$r), alpha = .8) +
+  scale_y_discrete(limits = rev(unique(sort(topy2$course)))) +
+  ylab("Course - common sections") +
+  xlab("Quarter (first two years)") +
+  labs(fill = "% in quarter")
+g2
