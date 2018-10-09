@@ -135,7 +135,7 @@ length(unique(dat$fig.key[!(dat$fig.key %in% co.sect$fig.key)]))    # that few? 
 
 # — 2) what courses (+ sections) are FIG students taking together --------
 
-# w/ term
+# w/o term
 pop.sect <- fig.sect %>%
   filter(n.fig.sect > 1) %>%
   group_by(fig.key, dept_abbrev, course_number, cskey) %>%
@@ -143,12 +143,14 @@ pop.sect <- fig.sect %>%
   ungroup() %>%
   select(fig.key, dept_abbrev, course_number, same.section)
 
+(ps <- pop.sect %>% group_by(dept_abbrev, course_number) %>% summarize(section = sum(same.section))) # ok
+
 # then -> most popular courses for same section:
 pop.course <- fig.sect %>%
   group_by(fig.key, dept_abbrev, course_number) %>%
   summarize(same.course = n_distinct(system_key)) %>%
-  ungroup()
-
+  ungroup() %>%
+  filter(same.course > 1)
 
 pop.tot <- pop.sect %>% inner_join(pop.course) %>%
   group_by(dept_abbrev, course_number) %>%
@@ -158,7 +160,7 @@ pop.tot <- pop.sect %>% inner_join(pop.course) %>%
   mutate(r = section / course) %>%
   arrange(desc(section))
 
-write_csv(pop.tot, "../most popular common sections and courses.csv", col_names = T)
+# write_csv(pop.tot, "../most popular common sections and courses.csv", col_names = T)
 
 
 #  distinct(system_key, dept_abbrev, course_number, .keep_all = T) %>% ungroup()
@@ -269,6 +271,7 @@ sum(y$n > 1) / nrow(y)
 
 # most pop by term
 x <- transcripts %>%
+  distinct(fig.key, system_key, cskey, .keep_all = T) %>%
   group_by(fig.key) %>%
   mutate(fig.size = n_distinct(system_key)) %>%
   ungroup() %>%
@@ -282,7 +285,7 @@ x$termlab <- factor(x$term, levels = c(2, 3, 5, 6, 7), labels = c("Winter-1", "S
   summarize(n.stu = n_distinct(system_key)))
 
 x2 <- x %>%
-  group_by(fig.yrq, termlab, dept_abbrev, course_number) %>%
+  group_by(fig.yrq, termlab, dept_abbrev, course_number, add = F) %>%
   summarize(n.course = n_distinct(system_key))
 
 y <- x2 %>%
@@ -310,10 +313,9 @@ g
 # most pop by term
 
 y2 <- x %>%
-  group_by(fig.yrq, termlab, dept_abbrev, course_number, section_id) %>%
+  group_by(fig.key, termlab, dept_abbrev, course_number, section_id) %>%
   summarize(n.sect = n_distinct(system_key)) %>%
   filter(n.sect <= 30, n.sect > 1) %>%
-  # roll up one more level:
   group_by(termlab, dept_abbrev, course_number, add = F) %>%
   summarize(n.sect = sum(n.sect)) %>%
   left_join(term.size) %>%
@@ -329,3 +331,15 @@ g2 <- ggplot(data = topy2, aes(x = termlab, y = course)) +
   xlab("Quarter (first two years)") +
   labs(fill = "% in quarter")
 g2
+
+
+
+
+
+# wtf is going on ---------------------------------------------------------
+
+check <- transcripts %>% filter(dept_abbrev == "CHEM", course_number == 152, term == 2)
+table(check$fig.yrq)
+check %>% group_by(fig.key, cskey) %>% summarize(nsect = n_distinct(system_key))
+
+
